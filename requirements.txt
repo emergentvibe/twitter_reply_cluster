@@ -3,6 +3,8 @@ requests
 python-dotenv
 anthropic
 supabase
+gunicorn # WSGI server for production
+psycopg2-binary # PostgreSQL adapter for Python
 
 # webdriver-manager # Optional, if chromedriver is not in PATH
 networkx 

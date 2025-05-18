@@ -3,10 +3,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const analyzeButton = document.getElementById('analyzeButton');
     const loadingIndicator = document.getElementById('loadingIndicator');
     const errorMessageDiv = document.getElementById('error-message');
+    const resultsDiv = document.querySelector('.analysis-results'); // Get the main results container
 
     const mainPostDisplay = document.getElementById('main-post-display');
     const overallSummaryDiv = document.getElementById('overall-summary');
     const clustersContainer = document.getElementById('clusters-columns-container');
+
+    // Check for preloaded data (from Flask template)
+    if (typeof window.preloadedAnalysisData !== 'undefined' && window.preloadedAnalysisData !== null) {
+        showLoading(false); // Ensure loading is hidden
+        hideError();
+        displayAnalysisData(window.preloadedAnalysisData);
+    } else {
+        // Hide results container if no preloaded data, show it only after analysis
+        if(resultsDiv) resultsDiv.style.display = 'none';
+    }
 
     // Function to escape HTML special characters
     function escapeHTML(str) {
@@ -59,11 +70,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 showError(data.error);
                 return;
             }
-            
-            displayMainPost(data);
-            displayOverallSummary(data.overall_summary);
-            displayClusters(data.cluster_details);
-            document.querySelector('.analysis-results').style.display = 'block';
+
+            // New: Redirect if view_url is present, otherwise display directly (fallback)
+            if (data.view_url) {
+                window.location.href = data.view_url;
+            } else {
+                // Fallback to display data if no view_url (should not happen with new API structure)
+                displayAnalysisData(data.data); 
+            }
 
         } catch (error) {
             showLoading(false);
@@ -268,6 +282,19 @@ document.addEventListener('DOMContentLoaded', () => {
         mainPostDisplay.innerHTML = '';
         overallSummaryDiv.innerHTML = '';
         clustersContainer.innerHTML = '';
-        document.querySelector('.analysis-results').style.display = 'none';
+        if(resultsDiv) resultsDiv.style.display = 'none';
+    }
+
+    // Central function to display all parts of the analysis data
+    function displayAnalysisData(analysisData) {
+        if (!analysisData) {
+            showError("No analysis data to display.");
+            if(resultsDiv) resultsDiv.style.display = 'none';
+            return;
+        }
+        displayMainPost(analysisData); // Expects the full analysis object from analyze_tweets or cache
+        displayOverallSummary(analysisData.overall_summary);
+        displayClusters(analysisData.cluster_details);
+        if(resultsDiv) resultsDiv.style.display = 'block';
     }
 }); 

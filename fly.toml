@@ -1,0 +1,38 @@
+# fly.toml app configuration file generated for twitter-replies-cluster on 2025-05-18T20:42:45+01:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'twitter-replies-cluster'
+primary_region = 'lhr'
+
+[build]
+  # No specific builder needed if relying on Python buildpacks and Procfile
+
+# Define the command for the 'web' process, mirroring Procfile
+[processes]
+  web = "gunicorn app:app --workers 4 --threads 2 --worker-class gthread --bind 0.0.0.0:8080"
+
+# This service block explicitly maps external ports to the internal port 
+# and specifies that it handles traffic for the 'web' process.
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080 # Matches http_service.internal_port and where Gunicorn listens
+  processes = ["web"]   # CRITICAL: This links the service to the 'web' process defined above.
+  force_https = true
+  auto_stop_machines = 'stop' # Or true, depending on desired behavior. 'stop' is specific.
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+[[vm]] # User added VM configuration
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1

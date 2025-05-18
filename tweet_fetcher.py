@@ -12,22 +12,17 @@ load_dotenv(override=True)
 OPEN_BIRDSITE_DB_BASE_URL = os.getenv("OPEN_BIRDSITE_DB_BASE_URL")
 OPEN_BIRDSITE_DB_TOKEN = os.getenv("OPEN_BIRDSITE_DB_TOKEN")
 
-# Initialize Supabase client
+# Initialize Supabase client for tweet fetching
 supabase_client: Client | None = None
-
-# Check for placeholder or missing Supabase credentials
 if not OPEN_BIRDSITE_DB_BASE_URL or OPEN_BIRDSITE_DB_BASE_URL.startswith("YOUR_SUPABASE_URL"):
     print(f"Error: OPEN_BIRDSITE_DB_BASE_URL not found or is a placeholder: {OPEN_BIRDSITE_DB_BASE_URL}. Please set it correctly in .env.")
-    supabase_client = None # Ensure client is None if URL is bad
 elif not OPEN_BIRDSITE_DB_TOKEN or OPEN_BIRDSITE_DB_TOKEN.startswith("YOUR_SUPABASE_TOKEN"):
     print(f"Error: OPEN_BIRDSITE_DB_TOKEN not found or is a placeholder: {OPEN_BIRDSITE_DB_TOKEN}. Please set it correctly in .env.")
-    supabase_client = None # Ensure client is None if Token is bad
 else:
     try:
         supabase_client = create_client(OPEN_BIRDSITE_DB_BASE_URL, OPEN_BIRDSITE_DB_TOKEN)
     except Exception as e:
         print(f"Error initializing Supabase client: {e}")
-        supabase_client = None
 
 if not supabase_client:
     print("Warning: Supabase client could not be initialized. Tweet fetching will fail.")

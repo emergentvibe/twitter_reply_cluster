@@ -7,6 +7,20 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+    <script>
+        // This will be populated by Flask if rendering a cached result
+        var preloadedAnalysisData = null;
+        {% if analysis_data_json %}
+        try {
+            // Use tojson filter for safety, then parse
+            preloadedAnalysisData = JSON.parse({{ analysis_data_json|tojson|safe }});
+        } catch (e) {
+            console.error("Error parsing preloaded analysis data:", e);
+            // Optionally display an error to the user or clear preloadedAnalysisData
+            preloadedAnalysisData = null;
+        }
+        {% endif %}
+    </script>
     <div class="container">
         <h1>Twitter Discourse Analyzer</h1>
         <div class="input-section">
