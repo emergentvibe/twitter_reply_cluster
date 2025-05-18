@@ -1,0 +1,8 @@
+Flask[async]
+requests
+python-dotenv
+anthropic
+supabase
+
+# webdriver-manager # Optional, if chromedriver is not in PATH
+networkx 

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twitter Discourse Analyzer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Twitter Discourse Analyzer</h1>
+        <div class="input-section">
+            <input type="text" id="tweetUrlInput" placeholder="Enter Tweet URL">
+            <button id="analyzeButton">Analyze</button>
+        </div>
+
+        <div id="loadingIndicator" style="display: none;">
+            <p>Loading analysis...</p>
+            <!-- You can add a more sophisticated loader/spinner here -->
+        </div>
+
+        <div id="error-message" class="error-message" style="display: none;"></div>
+
+        <div class="analysis-results">
+            <div id="main-post-display-container">
+                <h2>Original Post</h2>
+                <div id="main-post-display">
+                    <!-- Main tweet will be rendered here by script.js -->
+                </div>
+            </div>
+
+            <div id="overall-summary-container">
+                <h2>Overall Summary</h2>
+                <div id="overall-summary">
+                    <!-- Overall summary will be rendered here -->
+                </div>
+            </div>
+
+            <div id="clusters-container">
+                <h2>Reply Clusters</h2>
+                <div id="clusters-columns-container">
+                    <!-- Clusters will be rendered here by script.js -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Placeholder for tweet-component.js if it's an external script. 
+         If it defines a web component used by script.js, ensure it's loaded. -->
+    <!-- <script src="path/to/tweet-component.js"></script> -->
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html> 
