@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Twitter Discourse Analyzer</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tweet-component@latest/dist/tweet-component.min.js" async charset="utf-8"></script>
 </head>
 <body>
     <script>
@@ -36,6 +38,22 @@
         <div id="error-message" class="error-message" style="display: none;"></div>
 
         <div class="analysis-results">
+            
+            <div id="d3-graph-section" style="margin-bottom: 20px;">
+                <h3>Reply Thread Visualization (D3.js)</h3>
+                <svg id="d3-graph-svg" width="960" height="600"></svg>
+                <div id="graph-metrics-display" style="margin-top: 10px;">
+                    <!-- Graph metrics will be populated here -->
+                </div>
+            </div>
+
+            <!-- Tweet detail display area -->
+            <div id="tweet-detail-display" style="display: none; margin-top: 20px; padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9;">
+                <!-- Content will be populated by JavaScript -->
+                <h4>Tweet Details</h4>
+                <p>Click on a node in the graph to see its details here.</p>
+            </div>
+
             <div id="main-post-display-container">
                 <h2>Original Post</h2>
                 <div id="main-post-display">

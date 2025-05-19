@@ -11,3 +11,6 @@ venv/
 
 # Environment files
 .env
+
+# Configuration files (local settings)
+config.json

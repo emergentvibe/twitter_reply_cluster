@@ -164,6 +164,138 @@ This document outlines the development plan for a new version of the Twitter Dis
 3.  **[COMPLETED]** Added `LICENSE` file (MIT License, user to fill in copyright year/name).
 4.  **[COMPLETED]** Created `.env.example` file to show required environment variables.
 
+## Phase 8: Graph Visualization
+
+### Sub-Phase 8.1: Initial Graph Implementation (Cytoscape.js)
+
+1.  **[COMPLETED]** **Backend (`graph_visualizer.py`):**
+    *   **[COMPLETED]** Implemented `create_reply_graph` to build a NetworkX graph from tweet data (main post, replies, quote tweets).
+    *   **[COMPLETED]** Added node attributes: `id`, `text`, `author`, `display_name`, `type` (main_post, reply, quote_tweet), `likes`, `timestamp`, `classification`.
+    *   **[COMPLETED]** Added edge attributes: `relationship` ('reply', 'quotes').
+    *   **[COMPLETED]** Implemented `analyze_graph` to compute basic graph metrics (total tweets, replies, main post identification, reply depth, most replied to, author stats).
+    *   **[COMPLETED]** Implemented `process_tweet_data` to convert NetworkX graph to Cytoscape.js compatible JSON (`cytoscape_elements`).
+2.  **[COMPLETED]** **Backend (`app.py`):**
+    *   **[COMPLETED]** Integrated `process_tweet_data` into the `/api/analyze_url` endpoint.
+    *   **[COMPLETED]** Included `graph_metrics` and `cytoscape_elements` in the API response.
+3.  **[COMPLETED]** **Frontend (`templates/index.html` & `static/script.js` & `static/styles.css`):**
+    *   **[COMPLETED]** Added Cytoscape.js library.
+    *   **[COMPLETED]** Dynamically created a `div` container for the graph.
+    *   **[COMPLETED]** Initialized Cytoscape.js with data from the API.
+    *   **[COMPLETED]** Implemented node styling:
+        *   Color by `type` (main_post: red, quote_tweet: green, reply: blue).
+        *   Label by `author` and short `text` snippet (with text wrapping).
+        *   Size by `likes`.
+    *   **[COMPLETED]** Implemented edge styling (simple lines with arrows).
+    *   **[COMPLETED]** Applied 'cose' layout with extensive parameter tuning for clarity and node separation (e.g., `idealEdgeLength` based on relationship type, `nodeRepulsion`, `numIter`).
+    *   **[COMPLETED]** Added tap event on nodes to display tweet details in a separate div.
+    *   **[COMPLETED]** Displayed graph metrics below the graph.
+    *   **[COMPLETED]** Resolved issues with graph container height and rendering visibility.
+
+### Sub-Phase 8.2: Enhanced Graph Visualization with D3.js
+
+**Objective:** Replace Cytoscape.js with D3.js to implement a custom force-directed layout with more granular control over forces, enabling specific interactions like attraction to axes/points and differential repulsion based on node types or relationships.
+
+1.  **Setup & Initial Rendering:**
+    *   **[COMPLETED]** Add D3.js library to the project (e.g., via CDN in `index.html`).
+    *   **[COMPLETED]** Backend (`graph_visualizer.py` - Re-evaluate): Assess if the current `cytoscape_elements` format is directly usable by D3.js (D3 typically expects `nodes` and `links` arrays). If not, create a new function or adapt `process_tweet_data` to output D3-compatible graph data (e.g., `{ nodes: [...], links: [...] }`). Ensure node objects include all necessary attributes (`id`, `text`, `author`, `type`, `likes`, etc.) and link objects include `source` (id), `target` (id), and `relationship`. (Note: `save_graph_data_json` function in `graph_visualizer.py` to be manually deleted by user).
+    *   **[COMPLETED]** Frontend (`static/script.js` - Major Refactor):
+        *   **[COMPLETED]** Remove Cytoscape.js initialization and rendering logic. (Note: Block of Cytoscape helper functions to be manually deleted by user).
+        *   **[COMPLETED]** Set up an SVG container for D3.js visualization.
+        *   **[COMPLETED]** Implement basic D3.js rendering: draw SVG circles for nodes and lines for edges based on the D3-compatible data.
+2.  **Basic Force Simulation (`d3-force`):**
+    *   **[COMPLETED]** Initialize `d3.forceSimulation()`.
+    *   **[COMPLETED]** Add core forces:
+        *   **[COMPLETED]** `d3.forceLink()`: To position nodes based on edge connections (use `id`s for source/target).
+        *   **[COMPLETED]** `d3.forceManyBody()`: For node repulsion (charge force).
+        *   **[COMPLETED]** `d3.forceCenter()`: To keep the graph centered in the SVG container.
+    *   **[COMPLETED]** Implement the simulation tick function to update node/edge positions.
+3.  **Styling and Basic Interactions:**
+    *   **[COMPLETED]** Apply node styling using D3 attributes:
+        *   **[COMPLETED]** Fill color based on `type` (main_post, reply, quote_tweet).
+        *   **[COMPLETED]** Radius based on `likes`.
+        *   **[COMPLETED]** Add text labels for `author` (and potentially short text snippets if feasible with D3 text elements).
+    *   **[COMPLETED]** Style edges (lines). (Currently basic grey lines)
+    *   **[COMPLETED]** Implement zoom and pan functionality for the SVG container.
+    *   **[COMPLETED]** Implement node click/tap event to display tweet details (reuse/adapt existing `#tweet-detail-display` logic).
+4.  **Custom Force Implementation:**
+    *   **[COMPLETED]** Identify the main post node (e.g., based on `type: 'main_post'`).
+    *   **[COMPLETED]** Implement `d3.forceX()` and `d3.forceY()` to attract/position nodes:
+        *   **[COMPLETED]** Force to pull the main post towards a specific point (e.g., center of SVG, or a conceptual (0,0)).
+        *   **[COMPLETED]** Force(s) to align/attract specific node types (e.g., replies vs. quote tweets) along certain axes or lines relative to the main post or other reference points. (Initial implementation: vertical separation for replies/quotes).
+        *   *Example: Replies might have a force pulling them towards a circular orbit around their parent, while quote tweets are pushed to a different region or along a specific axis.* 
+    *   **[COMPLETED]** Customize `d3.forceManyBody()` or link forces to achieve differential repulsion/attraction if needed (e.g., stronger repulsion between quote tweets, or between quote tweets and the main post, compared to replies). (Initial implementation: stronger repulsion for quote tweets).
+    *   **[IN PROGRESS]** Iterate on force strengths and parameters to achieve the desired layout for clarity and semantic representation. (Initial set of custom forces applied; further tuning may be needed based on testing).
+5.  **Testing and Refinement:**
+    *   **[TO_DO]** Test with various thread structures (few replies, many replies, many quotes, deep threads).
+    *   **[TO_DO]** Optimize performance if needed, especially for larger graphs.
+    *   **[TO_DO]** Refine visual appearance and interactivity.
+
+## Phase 9: Feature Toggles
+
+1.  **[COMPLETED]** **Configuration Files:**
+    *   **[COMPLETED]** Created `config.example.json` with `enable_ai_analysis` and `enable_graph_visualization` flags.
+    *   **[COMPLETED]** Created `config.json` (intended for local modification, added to `.gitignore`).
+2.  **[COMPLETED]** **Backend (`app.py`):**
+    *   **[COMPLETED]** Implemented `load_app_config()` to read `config.json` with fallbacks to defaults.
+    *   **[COMPLETED]** Conditionally execute `analyze_tweets` based on `APP_CONFIG['enable_ai_analysis']`.
+    *   **[COMPLETED]** Conditionally execute `process_tweet_data` based on `APP_CONFIG['enable_graph_visualization']`.
+    *   **[COMPLETED]** Ensure `analysis_results` includes appropriate placeholders or messaging if features are disabled (e.g., `overall_summary: "AI analysis disabled"`, empty `d3_graph_data` with status).
+3.  **[COMPLETED]** **Frontend (`static/script.js`):**
+    *   **[COMPLETED]** Modified `displayAnalysisData` to check for disabled status in `d3_graph_data` and `graph_metrics` and hide/update UI elements accordingly.
+    *   **[COMPLETED]** Updated `displayOverallSummary` and `displayGraphMetrics` to show disabled messages if present in the data.
+4.  **[COMPLETED]** **Documentation:**
+    *   **[COMPLETED]** Added `config.json` to `.gitignore`.
+    *   **[COMPLETED]** Added `config.json` and `config.example.json` to `directory-map.md`.
+
+## Phase 10: Recursive Quote Tweet Fetching & Visualization
+
+**Objective:** Extend the application to fetch and visualize replies to quote tweets, and subsequent levels of quote tweets, up to a configurable depth.
+
+1.  **Configuration:**
+    *   **[TO_DO]** Add `recursive_qt_max_depth` to `config.json` and `config.example.json` (default: 5).
+    *   **[TO_DO]** Update `app.py` (`load_app_config`) to load this new setting.
+
+2.  **Backend (`tweet_fetcher.py` & `app.py`):
+    *   **[TO_DO]** Refactor fetching logic in `app.py` (e.g., within `analyze_url_route` or a new helper async function) to handle recursive fetching for quote tweets and their replies.
+        *   This function will manage a list/set of processed tweet IDs to avoid re-processing and cycles.
+        *   For each newly discovered quote tweet (up to `recursive_qt_max_depth`):
+            *   Fetch its direct replies (e.g., by using `fetch_enriched_tweet_thread` treating the QT as a temporary main post, then adapting parentage).
+            *   Fetch its direct quote tweets (using `fetch_quote_tweets`).
+            *   Newly fetched tweets are added to a global list for processing.
+    *   **[TO_DO]** Modify tweet data objects being collected:
+        *   Ensure each tweet has a unique `id`.
+        *   Add `qt_level` (integer: 0 for QTs of the original post, 1 for QTs of Level 0 QTs, etc.). Replies to a QT can inherit the `qt_level` of their parent QT or have it incremented.
+        *   Add `parent_tweet_id` (string: the ID of the tweet this tweet is a reply to, or the ID of the tweet this QT is quoting). This should correctly point to the immediate parent.
+        *   `tweet_type` remains ('main_post', 'reply', 'quote_tweet').
+    *   **[TO_DO]** `app.py` (`analyze_url_route`):
+        *   The main list `all_tweets_for_processing` (sent to `graph_visualizer.py`) must contain all unique tweets from all levels with the new attributes (`qt_level`, `parent_tweet_id`).
+        *   LLM analysis scope remains unchanged for now (only original main post and its direct replies/quotes).
+
+3.  **Graph Visualization (`graph_visualizer.py`):
+    *   **[TO_DO]** Update `create_reply_graph`:
+        *   The function receives the flat list of all unique tweet objects.
+        *   Edge creation: 
+            *   For replies: edge from reply `id` to its `parent_tweet_id`.
+            *   For quote tweets: edge from QT `id` to its `parent_tweet_id` (the tweet it quotes).
+        *   Node attributes should include `qt_level` for use in frontend styling/layout if needed (though D3 will primarily use it).
+
+4.  **Frontend (`static/script.js` - D3 Visualization):
+    *   **[TO_DO]** Modify `initializeD3Graph` in `static/script.js`:
+        *   The `forceX` for quote tweets needs to position them based on their `qt_level`.
+            *   A base `X_OFFSET_FACTOR` (e.g., 2.0, making it `width * 2.0`) should be defined.
+            *   Target X for a QT: `(width / 2) + ( (d.qt_level + 1) * X_OFFSET_FACTOR * width_reference_unit )` where `width_reference_unit` could be a fraction of width or a fixed pixel value to scale the offset. Or more simply, `(width / 2) + ( (d.qt_level + 1) * X_BASE_OFFSET_PER_LEVEL )`.
+            *   The original main post is at `qt_level = -1` (conceptually) or isn't a QT. Its replies cluster around it.
+            *   Level 0 QTs (direct QTs of main post) would be at `(width/2) + X_BASE_OFFSET_PER_LEVEL`.
+            *   Level 1 QTs at `(width/2) + 2 * X_BASE_OFFSET_PER_LEVEL`, etc.
+        *   Replies to QTs: Their `parent_tweet_id` will link them to their respective QT. The existing link force (short distance, strong strength for replies) should make them cluster around their parent QT.
+        *   The `forceManyBody` should provide repulsion between nodes on the same vertical line (e.g., QTs of the same level, or different reply clusters around QTs of the same level).
+
+5.  **Testing and Refinement:**
+    *   **[TO_DO]** Test with tweets that have multiple levels of quote tweets and replies to quote tweets.
+    *   **[TO_DO]** Tune force parameters (X positions, link distances/strengths, charge) for clarity.
+    *   **[TO_DO]** Monitor for and address performance issues with increased data.
+    *   **[TO_DO]** Handle potential infinite loops or excessive recursion in fetching (though `recursive_qt_max_depth` and processed ID tracking should prevent this).
+
 ## Future Enhancements (Post-MVP)
 
 *   Add specific CSS styling for the `(Quote Tweet)` indicator in the UI.

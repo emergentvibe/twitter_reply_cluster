@@ -76,3 +76,9 @@ This document outlines the structure and purpose of files and directories in the
     *   **Purpose:** The main HTML page for the application.
     *   **Contents Overview:** Contains a title, link to `static/style.css`, an input field (`tweetUrlInput`) for the tweet URL, an "Analyze" button (`analyzeButton`), a loading indicator (`loadingIndicator`), an error message div (`error-message`), and placeholder divs for displaying the original tweet (`main-post-display`), overall summary (`overall-summary`), and reply clusters (`clusters-columns-container`). Includes a script tag for `static/script.js`. Uses Flask's `url_for` for static asset linking.
     *   **Interactions:** Served by `app.py` at the root URL. Uses `static/style.css` for styling and `static/script.js` for dynamic functionality and API calls.
+
+*   `.env.example`: Example environment variable file.
+*   `config.json`: (Not committed, created locally) Configuration file for enabling/disabling features like AI analysis and graph visualization. Follows the structure of `config.example.json`.
+*   `config.example.json`: Example configuration file showing available feature toggles.
+
+## llm-docs/
