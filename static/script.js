@@ -454,38 +454,39 @@ document.addEventListener('DOMContentLoaded', () => {
                 })
             )
             .force("charge", d3.forceManyBody().strength(d => {
-                if (d.type === 'main_post') return -1000; // Main post strongly repels
-                if (d.type === 'quote_tweet') return -400; // QTs repel fairly strongly (was -350, slight increase to maintain their spacing)
-                if (d.type === 'reply') return -100;     // Replies repel each other less (was -350)
+                if (d.type === 'main_post') return -1500; // Main post strongly repels (was -1000)
+                if (d.type === 'quote_tweet') return -700; // QTs repel fairly strongly (was -400)
+                if (d.type === 'reply') return -100;     // Replies repel each other less
                 return -300; // Default for any other types (should ideally be none)
             }))
             .force("x", d3.forceX(d => {
-                // If fx is set (e.g., for main_post or any quote_tweet), the simulation honors it directly.
-                // This forceX primarily targets nodes *without* fx set, i.e., replies.
                 if (d.fx !== undefined) return d.fx; // Honor fx if it's set
 
+                if (d.type === 'main_post' && d.qt_level && d.qt_level > 0) {
+                    const level = d.qt_level;
+                    return (width * 2.0) + ((level - 1) * width * 2.0);
+                }
                 if (d.type === 'reply') {
                     if (d.qt_level && d.qt_level > 0) { // Reply to a QT
                         const level = d.qt_level;
-                        // Target the same x-coordinate as its parent QT's line
                         return (width * 2.0) + ((level - 1) * width * 2.0);
                     }
                     // Reply to main post (qt_level is 0 or undefined/NaN treated as 0)
-                    return width / 2; 
+                    return (width / 2) + (width * 0.1); // Shift slightly right of center
                 }
-                // Default fallback for any other unhandled node types without fx (should ideally be none)
                 return width / 2; 
             }).strength(d => {
-                // If fx is set, this forceX should have minimal influence or be overridden.
-                // Let's give it a very small strength just to be defined, but fx takes precedence.
                 if (d.fx !== undefined) return 0.01; 
 
+                if (d.type === 'main_post' && d.qt_level && d.qt_level > 0) {
+                    return 0.5; // Moderate pull for external conversation roots to their QT level line
+                }
                 if (d.type === 'reply') {
                     if (d.qt_level && d.qt_level > 0) { // Reply to a QT
                         return 1.0; // Strong pull for replies to QTs to their QT's line
                     }
-                    // Reply to main post
-                    return 0.3; // Increased strength for replies to main post to stay near center (was 0.15, then 0.25)
+                    // Reply to main post - weaken this to see if they distribute better
+                    return 0.1; // Was 0.3
                 }
                 // Fallback strength for any other nodes without fx (should be none)
                 return 0.1; 

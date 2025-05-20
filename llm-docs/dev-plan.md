@@ -214,7 +214,7 @@ This document outlines the development plan for a new version of the Twitter Dis
         *   **[COMPLETED]** Fill color based on `type` (main_post, reply, quote_tweet).
         *   **[COMPLETED]** Radius based on `likes`.
         *   **[COMPLETED]** Add text labels for `author` (and potentially short text snippets if feasible with D3 text elements).
-    *   **[COMPLETED]** Style edges (lines). (Currently basic grey lines)
+    *   **[COMPLETED]** Style edges (lines). (Currently basic grey lines, with different types for 'reply' vs 'quote_to_actual_reply')
     *   **[COMPLETED]** Implement zoom and pan functionality for the SVG container.
     *   **[COMPLETED]** Implement node click/tap event to display tweet details (reuse/adapt existing `#tweet-detail-display` logic).
 4.  **Custom Force Implementation:**
@@ -224,11 +224,11 @@ This document outlines the development plan for a new version of the Twitter Dis
         *   **[COMPLETED]** Force(s) to align/attract specific node types (e.g., replies vs. quote tweets) along certain axes or lines relative to the main post or other reference points. (Initial implementation: vertical separation for replies/quotes).
         *   *Example: Replies might have a force pulling them towards a circular orbit around their parent, while quote tweets are pushed to a different region or along a specific axis.* 
     *   **[COMPLETED]** Customize `d3.forceManyBody()` or link forces to achieve differential repulsion/attraction if needed (e.g., stronger repulsion between quote tweets, or between quote tweets and the main post, compared to replies). (Initial implementation: stronger repulsion for quote tweets).
-    *   **[IN PROGRESS]** Iterate on force strengths and parameters to achieve the desired layout for clarity and semantic representation. (Initial set of custom forces applied; further tuning may be needed based on testing).
+    *   **[COMPLETED]** Iterate on force strengths and parameters to achieve the desired layout for clarity and semantic representation. (Significant iteration and tuning performed for main post replies, QT positioning, QT reply positioning, and roots of external conversations).
 5.  **Testing and Refinement:**
-    *   **[TO_DO]** Test with various thread structures (few replies, many replies, many quotes, deep threads).
+    *   **[IN PROGRESS - SIGNIFICANT ITERATION DONE]** Test with various thread structures (few replies, many replies, many quotes, deep threads).
     *   **[TO_DO]** Optimize performance if needed, especially for larger graphs.
-    *   **[TO_DO]** Refine visual appearance and interactivity.
+    *   **[IN PROGRESS - SIGNIFICANT ITERATION DONE]** Refine visual appearance and interactivity.
 
 ## Phase 9: Feature Toggles
 
@@ -252,44 +252,47 @@ This document outlines the development plan for a new version of the Twitter Dis
 **Objective:** Extend the application to fetch and visualize replies to quote tweets, and subsequent levels of quote tweets, up to a configurable depth.
 
 1.  **Configuration:**
-    *   **[TO_DO]** Add `recursive_qt_max_depth` to `config.json` and `config.example.json` (default: 5).
-    *   **[TO_DO]** Update `app.py` (`load_app_config`) to load this new setting.
+    *   **[COMPLETED]** Add `recursive_qt_max_depth` to `config.json` and `config.example.json` (default: 5).
+    *   **[COMPLETED]** Update `app.py` (`load_app_config`) to load this new setting.
 
 2.  **Backend (`tweet_fetcher.py` & `app.py`):
-    *   **[TO_DO]** Refactor fetching logic in `app.py` (e.g., within `analyze_url_route` or a new helper async function) to handle recursive fetching for quote tweets and their replies.
+    *   **[COMPLETED]** Refactor fetching logic in `app.py` (e.g., within `analyze_url_route` or a new helper async function) to handle recursive fetching for quote tweets and their replies.
         *   This function will manage a list/set of processed tweet IDs to avoid re-processing and cycles.
         *   For each newly discovered quote tweet (up to `recursive_qt_max_depth`):
             *   Fetch its direct replies (e.g., by using `fetch_enriched_tweet_thread` treating the QT as a temporary main post, then adapting parentage).
             *   Fetch its direct quote tweets (using `fetch_quote_tweets`).
             *   Newly fetched tweets are added to a global list for processing.
-    *   **[TO_DO]** Modify tweet data objects being collected:
+    *   **[COMPLETED]** Modify tweet data objects being collected:
         *   Ensure each tweet has a unique `id`.
         *   Add `qt_level` (integer: 0 for QTs of the original post, 1 for QTs of Level 0 QTs, etc.). Replies to a QT can inherit the `qt_level` of their parent QT or have it incremented.
         *   Add `parent_tweet_id` (string: the ID of the tweet this tweet is a reply to, or the ID of the tweet this QT is quoting). This should correctly point to the immediate parent.
-        *   `tweet_type` remains ('main_post', 'reply', 'quote_tweet').
-    *   **[TO_DO]** `app.py` (`analyze_url_route`):
-        *   The main list `all_tweets_for_processing` (sent to `graph_visualizer.py`) must contain all unique tweets from all levels with the new attributes (`qt_level`, `parent_tweet_id`).
+        *   Add `actual_reply_to_id` (string: the ID of the tweet this tweet is a direct reply to, irrespective of QT relationships).
+        *   `tweet_type` remains ('main_post', 'reply', 'quote_tweet'). Logic to preserve 'quote_tweet' type and correctly identify 'main_post' for roots of external conversations has been implemented.
+    *   **[COMPLETED]** `app.py` (`analyze_url_route`):
+        *   The main list `all_tweets_for_processing` (sent to `graph_visualizer.py`) must contain all unique tweets from all levels with the new attributes (`qt_level`, `parent_tweet_id`, `actual_reply_to_id`).
         *   LLM analysis scope remains unchanged for now (only original main post and its direct replies/quotes).
 
 3.  **Graph Visualization (`graph_visualizer.py`):**
     *   **[COMPLETED]** Update `create_reply_graph` to add a `qt_level` attribute to each node (defaulting to -1 if not present in input data, which should be 0 for main post and its direct interactions, and 1+ for recursive QTs).
-    *   **[COMPLETED]** Update edge creation logic to link nodes to their `parent_tweet_id` for both 'reply' and 'quote_tweet' types. Remove specific handling for `main_post_id` during edge creation as `parent_tweet_id` should cover all connections.
+    *   **[COMPLETED]** Update edge creation logic to link nodes to their `parent_tweet_id` for both 'reply' and 'quote_tweet' types.
+    *   **[COMPLETED]** Added secondary edge creation logic based on `actual_reply_to_id` to represent direct reply chains within conversation threads that might also be linked via QTs.
 
 4.  **Frontend D3.js Visualization Update (`static/script.js`):**
     *   **[COMPLETED]** Modify the D3 force simulation in `initializeD3Graph`.
     *   **[COMPLETED]** Use the `qt_level` attribute on nodes for their horizontal (`forceX`) positioning.
         *   Main post (`qt_level: 0` or `id === mainPostId`) remains fixed at the center (`fx`, `fy`).
-        *   Replies to main post (`qt_level: 0`) are pulled towards the center's X-coordinate.
+        *   Replies to main post (`qt_level: 0`) are pulled towards the center's X-coordinate (with adjustments to prevent strict left-side clustering).
         *   Quote tweets (`qt_level: 1`) are pulled to a vertical line to the right of the main post.
         *   Recursively fetched QTs (`qt_level: 2, 3, ...`) are pulled to subsequent vertical lines, each further to the right.
+        *   Roots of external conversations linked via QTs are positioned on the appropriate QT level's vertical line.
         *   *Note: Force parameters (X-offsets, strengths) were adjusted iteratively and may require further tuning based on visual results with diverse datasets.*
-    *   **[IN PROGRESS]** Ensure link distances/strengths and repulsion forces are appropriately configured to work well with the new `qt_level` based layout (e.g., replies to QTs should cluster around their parent QT on its vertical line).
+    *   **[COMPLETED]** Ensure link distances/strengths and repulsion forces are appropriately configured to work well with the new `qt_level` based layout (e.g., replies to QTs should cluster around their parent QT on its vertical line). (Significant iteration completed).
 
 5.  **Testing and Refinement:**
-    *   **[TO_DO]** Test with tweets that have multiple levels of quote tweets and replies to quote tweets.
-    *   **[TO_DO]** Tune force parameters (X positions, link distances/strengths, charge) for clarity.
+    *   **[IN PROGRESS - SIGNIFICANT ITERATION DONE]** Test with tweets that have multiple levels of quote tweets and replies to quote tweets.
+    *   **[IN PROGRESS - ITERATION DONE, FURTHER TUNING POSSIBLE]** Tune force parameters (X positions, link distances/strengths, charge) for clarity.
     *   **[TO_DO]** Monitor for and address performance issues with increased data.
-    *   **[TO_DO]** Handle potential infinite loops or excessive recursion in fetching (though `recursive_qt_max_depth` and processed ID tracking should prevent this).
+    *   **[COMPLETED]** Handle potential infinite loops or excessive recursion in fetching (though `recursive_qt_max_depth` and processed ID tracking should prevent this).
 
 ## Future Enhancements (Post-MVP)
 
