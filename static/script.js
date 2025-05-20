@@ -348,6 +348,9 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("Initializing D3 graph with:", graphData, graphMetrics);
         const svg = d3.select("#d3-graph-svg");
 
+        // Clear previous SVG contents thoroughly
+        svg.selectAll("*").remove();
+
         if (!graphData || !graphData.nodes || !graphData.links) {
             console.error("D3 graph data is incomplete (missing nodes or links).");
             svg.append("text")
@@ -356,17 +359,149 @@ document.addEventListener('DOMContentLoaded', () => {
                .text("Error: Graph data is incomplete.");
             return;
         }
-
-        const width = +svg.attr("width");
-        const height = +svg.attr("height");
-
-        // Clear previous SVG contents
-        svg.selectAll("*").remove();
-        // Add a main <g> element for zoom & pan
+        
+        // Add a main <g> element for zoom & pan, and for containing all graph elements
         const g = svg.append("g");
 
+        const { width, height } = svg.node().getBoundingClientRect();
+        const mainPostId = graphData.nodes.find(n => n.tweet_type === 'main_post')?.id;
+
+        // Fix main post position if it exists
+        graphData.nodes.forEach(node => {
+            if (node.id === mainPostId) {
+                node.fx = width / 2;
+                node.fy = height / 2;
+            }
+            
+            // --- BEGIN DEBUG LOGGING for fx assignment (can be removed/commented later) ---
+            if (node.type === 'quote_tweet') { 
+                 console.log(`[DEBUG FX Check PRE-CLEANUP] Node ID: ${node.id}, Type: ${node.type}, Raw qt_level: ${node.qt_level}, typeof qt_level: ${typeof node.qt_level}`);
+            }
+            // --- END DEBUG LOGGING --
+
+            // Ensure qt_level is a number, default to 0 if missing/invalid
+            if (typeof node.qt_level !== 'number' || isNaN(node.qt_level)) {
+                // console.warn(`Node ${node.id} had invalid qt_level (${node.qt_level}), defaulting to 0.`);
+                node.qt_level = 0;
+            }
+
+            // Fix ALL QTs to their respective vertical lines
+            if (node.type === 'quote_tweet') {
+                const level = Math.max(1, node.qt_level || 1); // Ensure qt_level interpreted as at least 1 for QTs
+                if (level === 1) {
+                    node.fx = width * 2.0;
+                } else { // level > 1
+                    // For subsequent levels, position them further to the right
+                    node.fx = (width * 2.0) + ((level - 1) * width * 2.0);
+                }
+                console.log(`[DEBUG FX SET QT] Node ID: ${node.id} (QT Level ${level}) fx SET TO: ${node.fx}`);
+            }
+            // Replies do NOT get fx set here; their position is dynamic based on forces.
+        });
+
+        // --- BEGIN LOGGING for qt_level of replies to main post (can be removed/commented later) ---
+        console.log("[DEBUG Reply qt_level Check for Main Post Replies]:");
+        graphData.links.forEach(link => {
+            let sourceNode = null;
+            let targetNode = null;
+            if (typeof link.source === 'string') sourceNode = graphData.nodes.find(n => n.id === link.source);
+            else sourceNode = link.source;
+            if (typeof link.target === 'string') targetNode = graphData.nodes.find(n => n.id === link.target);
+            else targetNode = link.target;
+
+            if (sourceNode && targetNode && mainPostId) { // Ensure mainPostId is defined
+                if (sourceNode.id === mainPostId && targetNode.type === 'reply') {
+                    console.log(`  Reply ${targetNode.id} (to main post ${mainPostId}): qt_level=${targetNode.qt_level}, type=${targetNode.type}`);
+                } else if (targetNode.id === mainPostId && sourceNode.type === 'reply') {
+                    // This case handles if the main post is the target in the link object
+                     console.log(`  Reply ${sourceNode.id} (to main post ${mainPostId}): qt_level=${sourceNode.qt_level}, type=${sourceNode.type}`);
+                }
+            }
+        });
+        // --- END LOGGING ---
+
+        console.log("[DEBUG FX Check Post-Loop] Sample of QTs after fx setting attempt:");
+        graphData.nodes.filter(n => n.type === 'quote_tweet' && n.qt_level === 1).slice(0,5).forEach(n => {
+            console.log(`  Node ID: ${n.id}, fx: ${n.fx}, fy: ${n.fy}`);
+        });
+
+        const { width: svgContentWidth, height: svgContentHeight } = svg.node().getBoundingClientRect(); // Renamed to avoid conflict if fx loop uses width/height directly
+        console.log(`[DEBUG D3 Dimensions] SVG BBox width: ${svgContentWidth}, height: ${svgContentHeight}`);
+
+        const simulation = d3.forceSimulation(graphData.nodes)
+            .force("link", d3.forceLink(graphData.links)
+                .id(d => d.id)
+                .distance(link => {
+                    const source = link.source;
+                    const target = link.target;
+                    // Default distance
+                    let dist = 80;
+
+                    if (source.tweet_type === 'main_post') {
+                        dist = (target.tweet_type === 'quote_tweet') ? 180 : 120; // Longer for QTs from main, moderate for replies
+                    } else if (source.tweet_type === 'quote_tweet') {
+                        if (target.tweet_type === 'reply') dist = 70; // Replies to QTs closer to their QT
+                        else if (target.tweet_type === 'quote_tweet') dist = 150; // QT to sub-QT
+                    }
+                    return dist;
+                })
+                .strength(link => {
+                    // Make links to main post a bit stronger to keep structure
+                    if (link.source.tweet_type === 'main_post' || link.target.tweet_type === 'main_post') {
+                        return 0.7;
+                    }
+                    return 0.4; // Weaker for other links to allow more charge-based spread
+                })
+            )
+            .force("charge", d3.forceManyBody().strength(d => {
+                if (d.type === 'main_post') return -1000; // Main post strongly repels
+                if (d.type === 'quote_tweet') return -400; // QTs repel fairly strongly (was -350, slight increase to maintain their spacing)
+                if (d.type === 'reply') return -100;     // Replies repel each other less (was -350)
+                return -300; // Default for any other types (should ideally be none)
+            }))
+            .force("x", d3.forceX(d => {
+                // If fx is set (e.g., for main_post or any quote_tweet), the simulation honors it directly.
+                // This forceX primarily targets nodes *without* fx set, i.e., replies.
+                if (d.fx !== undefined) return d.fx; // Honor fx if it's set
+
+                if (d.type === 'reply') {
+                    if (d.qt_level && d.qt_level > 0) { // Reply to a QT
+                        const level = d.qt_level;
+                        // Target the same x-coordinate as its parent QT's line
+                        return (width * 2.0) + ((level - 1) * width * 2.0);
+                    }
+                    // Reply to main post (qt_level is 0 or undefined/NaN treated as 0)
+                    return width / 2; 
+                }
+                // Default fallback for any other unhandled node types without fx (should ideally be none)
+                return width / 2; 
+            }).strength(d => {
+                // If fx is set, this forceX should have minimal influence or be overridden.
+                // Let's give it a very small strength just to be defined, but fx takes precedence.
+                if (d.fx !== undefined) return 0.01; 
+
+                if (d.type === 'reply') {
+                    if (d.qt_level && d.qt_level > 0) { // Reply to a QT
+                        return 1.0; // Strong pull for replies to QTs to their QT's line
+                    }
+                    // Reply to main post
+                    return 0.3; // Increased strength for replies to main post to stay near center (was 0.15, then 0.25)
+                }
+                // Fallback strength for any other nodes without fx (should be none)
+                return 0.1; 
+            }))
+            .force("y", d3.forceY(d => {
+                if (d.tweet_type === 'main_post') return height / 2;
+                // QTs and replies to QTs can spread vertically along their line, gentle pull to vertical center of their line
+                return height / 2; 
+            }).strength(d => {
+                if (d.tweet_type === 'main_post') return 1.0;
+                return 0.05; // Weak Y pull for all others, allowing link distance and charge to dictate Y position more
+            }))
+            .force("collision", d3.forceCollide().radius(d => getNodeRadius(d.likes) + 8)); // Add collision
+
         // Links (edges) - appended to the main <g>
-        const link = g.append("g")
+        const link = g.append("g") // Append to g, not svg
             .attr("stroke", "#999")
             .attr("stroke-opacity", 0.6)
             .selectAll("line")
@@ -376,24 +511,36 @@ document.addEventListener('DOMContentLoaded', () => {
             .style("stroke-width", d => d.relationship === 'quotes' ? 2.5 : 1.5);
 
         // Nodes - appended to the main <g>
-        const node = g.append("g")
+        const node = g.append("g") // Append to g, not svg
             .attr("stroke", "#fff")
             .attr("stroke-width", 1.5)
             .selectAll("circle")
             .data(graphData.nodes)
             .join("circle")
-            // .attr("r", 5) // Radius now set by getNodeRadius
-            // .attr("fill", "#69b3a2"); // Fill now set by getNodeColor
+            .attr("r", d => getNodeRadius(d.likes)) // Set radius here
+            .attr("fill", d => getNodeColor(d.type)) // Corrected to use d.type
+            .on("click", function(event, d) {
+                console.log("Node clicked:", d);
+                displayTweetDetail(d);
+            });
 
         // Add text labels for nodes - appended to the main <g>
-        const labels = g.append("g")
+        const labels = g.append("g") // Append to g, not svg
             .attr("class", "labels")
             .selectAll("text")
             .data(graphData.nodes)
             .join("text")
             .text(d => d.author || 'unknown')
-            .attr("x", d => d.x + getNodeRadius(d.likes) + 2) // Position text to the right of the node
-            .attr("y", d => d.y + 4) // Slightly offset y for better alignment
+            // Initial positioning for labels - will be updated by tick.
+            // Using d.x and d.y which should be initialized by the simulation start.
+            .attr("x", d => {
+                if (isNaN(d.x)) { console.warn(`Label init NaN x for node ${d.id}`); return 0;}
+                return d.x + getNodeRadius(d.likes) + 2;
+            }) 
+            .attr("y", d => {
+                if (isNaN(d.y)) { console.warn(`Label init NaN y for node ${d.id}`); return 0;}
+                return d.y + 4;
+            }) 
             .style("font-size", "10px")
             .style("fill", "#333");
         
@@ -401,7 +548,8 @@ document.addEventListener('DOMContentLoaded', () => {
         function getNodeColor(nodeType) {
             if (nodeType === 'main_post') return '#FF4136'; // Red
             if (nodeType === 'quote_tweet') return '#2ECC40'; // Green
-            return '#0074D9'; // Blue for reply or unknown
+            // return '#0074D9'; // Blue for reply or unknown - previous line
+            return '#1DA1F2'; // Twitter blue for reply or unknown
         }
 
         // Helper function for node radius based on likes
@@ -415,80 +563,58 @@ document.addEventListener('DOMContentLoaded', () => {
             return Math.min(baseRadius + scaledLikes * 1.5, maxRadius); 
         }
 
-        // Apply styles to nodes
-        node.attr("r", d => getNodeRadius(d.likes))
-            .attr("fill", d => getNodeColor(d.type))
-            .on("click", function(event, d) {
-                // 'd' is the datum of the clicked node
-                console.log("Node clicked:", d);
-                displayTweetDetail(d); // Pass the node's data to the existing display function
-            });
-
-        // Force Simulation
-        const simulation = d3.forceSimulation(graphData.nodes)
-            .force("link", d3.forceLink(graphData.links)
-                .id(d => d.id)
-                .distance(d => d.relationship === 'quotes' ? 750 : 50) // Quotes significantly further (750), replies closer (50)
-                .strength(d => d.relationship === 'quotes' ? 0.3 : 0.7) // Replies have stronger links
-            )
-            .force("charge", d3.forceManyBody().strength(d => {
-                if (d.type === 'quote_tweet') {
-                    return -250; // Stronger repulsion for quote tweets
-                }
-                return -150; // Default repulsion for other nodes
-            }))
-            .force("center", d3.forceCenter(width / 2, height / 2));
-
-        // Identify main post and apply specific forces
-        const mainPostNode = graphData.nodes.find(node => node.type === 'main_post');
-
-        if (mainPostNode) {
-            // Fix the main post to the center of the SVG
-            mainPostNode.fx = width / 2;
-            mainPostNode.fy = height / 2;
-            
-            // Remove the previous forces that were pulling the main post, as fx/fy is a hard constraint
-            simulation.force("mainPostX", null);
-            simulation.force("mainPostY", null);
-
-            // The yByType force might also be removed or adjusted based on new requirements
-            // For now, let's remove it to simplify for the new X-based positioning of quotes
-            simulation.force("yByType", null);
-        }
-
-        // Add a force to pull quote tweets to the right side
-        simulation.force("quoteX", d3.forceX(d => {
-            if (d.type === 'quote_tweet') {
-                return width * 2.0; // Target X for quote tweets extremely far to the right
-            }
-            return width / 2; // Default X target for other nodes
-        }).strength(d => d.type === 'quote_tweet' ? 0.95 : 0.001)); // Very strong pull for quotes, very weak for others
-
         // Tick function to update positions
         simulation.on("tick", () => {
             link
-                .attr("x1", d => d.source.x)
-                .attr("y1", d => d.source.y)
-                .attr("x2", d => d.target.x)
-                .attr("y2", d => d.target.y);
+                .attr("x1", d => {
+                    if (isNaN(d.source.x)) console.warn(`NaN x1 for link ${d.source.id}-${d.target.id}, source x: ${d.source.x}`);
+                    return d.source.x;
+                })
+                .attr("y1", d => {
+                    if (isNaN(d.source.y)) console.warn(`NaN y1 for link ${d.source.id}-${d.target.id}, source y: ${d.source.y}`);
+                    return d.source.y;
+                })
+                .attr("x2", d => {
+                    if (isNaN(d.target.x)) console.warn(`NaN x2 for link ${d.source.id}-${d.target.id}, target x: ${d.target.x}`);
+                    return d.target.x;
+                })
+                .attr("y2", d => {
+                    if (isNaN(d.target.y)) console.warn(`NaN y2 for link ${d.source.id}-${d.target.id}, target y: ${d.target.y}`);
+                    return d.target.y;
+                });
 
             node
-                .attr("cx", d => d.x)
-                .attr("cy", d => d.y);
+                .attr("cx", d => {
+                    if (isNaN(d.x)) console.warn(`NaN cx for node ${d.id}, x: ${d.x}`);
+                    return d.x;
+                })
+                .attr("cy", d => {
+                    if (isNaN(d.y)) console.warn(`NaN cy for node ${d.id}, y: ${d.y}`);
+                    return d.y;
+                });
             
             labels
-                .attr("x", d => d.x + getNodeRadius(d.likes) + 2) // Adjust x based on node radius
-                .attr("y", d => d.y + 4); // Keep y alignment
+                .attr("x", d => {
+                    if(isNaN(d.x)) return 0; // Prevent NaN in positioning if d.x is bad
+                    return d.x + getNodeRadius(d.likes) + 2;
+                })
+                .attr("y", d => {
+                    if(isNaN(d.y)) return 0; // Prevent NaN in positioning if d.y is bad
+                    return d.y + 4;
+                });
         });
 
         // Zoom and Pan functionality
         const zoomHandler = d3.zoom()
             .scaleExtent([0.1, 4]) // Set min/max zoom scale
             .on("zoom", (event) => {
-                g.attr("transform", event.transform);
+                g.attr("transform", event.transform); // Apply transform to g, not svg
             });
         
         svg.call(zoomHandler);
+
+        // Reset zoom and pan to initial state (optional, if you want to ensure it starts centered)
+        // svg.call(zoomHandler.transform, d3.zoomIdentity);
 
         console.log("D3: Force simulation started. Zoom/pan enabled.");
         console.log("SVG width:", width, "SVG height:", height);
@@ -505,21 +631,18 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Construct a similar object to what createTweetHTML expects
-        // The attributes might be slightly different depending on how D3 nodes store them.
-        // For now, assume direct properties or access via a 'data' property if D3 nodes wrap it.
         const displayData = {
             text: tweetData.text || 'N/A',
-            author_handle: tweetData.author || 'N/A',
-            author_display_name: tweetData.display_name || 'N/A',
+            author_handle: tweetData.author_handle || tweetData.author || 'N/A', // Prefer author_handle if present
+            author_display_name: tweetData.author_display_name || tweetData.display_name || 'N/A', // Prefer author_display_name
             like_count: tweetData.likes !== undefined ? tweetData.likes : 'N/A',
             timestamp: tweetData.timestamp ? new Date(tweetData.timestamp).toLocaleString() : 'N/A',
-            avatar_url: tweetData.avatar_url, // Assuming avatar_url will be part of node data
-            llm_classification: tweetData.classification, // Assuming classification is part of node data
-            tweet_type: tweetData.type // Assuming type is part of node data
+            avatar_url: tweetData.avatar_url,
+            llm_classification: tweetData.llm_classification || tweetData.classification, // Prefer llm_classification
+            tweet_type: tweetData.tweet_type || tweetData.type // Prefer tweet_type
         };
 
-        detailDiv.innerHTML = createTweetHTML(displayData, tweetData.type === 'main_post');
+        detailDiv.innerHTML = createTweetHTML(displayData, displayData.tweet_type === 'main_post');
         detailDiv.style.display = 'block';
     }
 

@@ -271,24 +271,19 @@ This document outlines the development plan for a new version of the Twitter Dis
         *   The main list `all_tweets_for_processing` (sent to `graph_visualizer.py`) must contain all unique tweets from all levels with the new attributes (`qt_level`, `parent_tweet_id`).
         *   LLM analysis scope remains unchanged for now (only original main post and its direct replies/quotes).
 
-3.  **Graph Visualization (`graph_visualizer.py`):
-    *   **[TO_DO]** Update `create_reply_graph`:
-        *   The function receives the flat list of all unique tweet objects.
-        *   Edge creation: 
-            *   For replies: edge from reply `id` to its `parent_tweet_id`.
-            *   For quote tweets: edge from QT `id` to its `parent_tweet_id` (the tweet it quotes).
-        *   Node attributes should include `qt_level` for use in frontend styling/layout if needed (though D3 will primarily use it).
+3.  **Graph Visualization (`graph_visualizer.py`):**
+    *   **[COMPLETED]** Update `create_reply_graph` to add a `qt_level` attribute to each node (defaulting to -1 if not present in input data, which should be 0 for main post and its direct interactions, and 1+ for recursive QTs).
+    *   **[COMPLETED]** Update edge creation logic to link nodes to their `parent_tweet_id` for both 'reply' and 'quote_tweet' types. Remove specific handling for `main_post_id` during edge creation as `parent_tweet_id` should cover all connections.
 
-4.  **Frontend (`static/script.js` - D3 Visualization):
-    *   **[TO_DO]** Modify `initializeD3Graph` in `static/script.js`:
-        *   The `forceX` for quote tweets needs to position them based on their `qt_level`.
-            *   A base `X_OFFSET_FACTOR` (e.g., 2.0, making it `width * 2.0`) should be defined.
-            *   Target X for a QT: `(width / 2) + ( (d.qt_level + 1) * X_OFFSET_FACTOR * width_reference_unit )` where `width_reference_unit` could be a fraction of width or a fixed pixel value to scale the offset. Or more simply, `(width / 2) + ( (d.qt_level + 1) * X_BASE_OFFSET_PER_LEVEL )`.
-            *   The original main post is at `qt_level = -1` (conceptually) or isn't a QT. Its replies cluster around it.
-            *   Level 0 QTs (direct QTs of main post) would be at `(width/2) + X_BASE_OFFSET_PER_LEVEL`.
-            *   Level 1 QTs at `(width/2) + 2 * X_BASE_OFFSET_PER_LEVEL`, etc.
-        *   Replies to QTs: Their `parent_tweet_id` will link them to their respective QT. The existing link force (short distance, strong strength for replies) should make them cluster around their parent QT.
-        *   The `forceManyBody` should provide repulsion between nodes on the same vertical line (e.g., QTs of the same level, or different reply clusters around QTs of the same level).
+4.  **Frontend D3.js Visualization Update (`static/script.js`):**
+    *   **[COMPLETED]** Modify the D3 force simulation in `initializeD3Graph`.
+    *   **[COMPLETED]** Use the `qt_level` attribute on nodes for their horizontal (`forceX`) positioning.
+        *   Main post (`qt_level: 0` or `id === mainPostId`) remains fixed at the center (`fx`, `fy`).
+        *   Replies to main post (`qt_level: 0`) are pulled towards the center's X-coordinate.
+        *   Quote tweets (`qt_level: 1`) are pulled to a vertical line to the right of the main post.
+        *   Recursively fetched QTs (`qt_level: 2, 3, ...`) are pulled to subsequent vertical lines, each further to the right.
+        *   *Note: Force parameters (X-offsets, strengths) were adjusted iteratively and may require further tuning based on visual results with diverse datasets.*
+    *   **[IN PROGRESS]** Ensure link distances/strengths and repulsion forces are appropriately configured to work well with the new `qt_level` based layout (e.g., replies to QTs should cluster around their parent QT on its vertical line).
 
 5.  **Testing and Refinement:**
     *   **[TO_DO]** Test with tweets that have multiple levels of quote tweets and replies to quote tweets.

@@ -48,12 +48,17 @@ async def _get_root_conversation_id_async(tweet_id_str: str) -> str | None:
     try:
         # print(f"Fetching conversation_id for tweet_id: {tweet_id_str}")
         response = supabase_client.table("conversations").select("conversation_id").eq("tweet_id", tweet_id_str).maybe_single().execute()
-        if response.data and response.data.get("conversation_id"):
+        
+        # Add a check for response itself before accessing response.data
+        if response and response.data and response.data.get("conversation_id"):
             # print(f"Found root_conversation_id: {response.data['conversation_id']} for tweet_id: {tweet_id_str}")
             return response.data["conversation_id"]
+        elif response is None:
+            print(f"Warning: Supabase response was None when fetching conversation_id for {tweet_id_str}. Fallback to tweet_id_str.")
+            return tweet_id_str # Fallback
         else:
-            # Fallback: if not in conversations table, assume the tweet_id itself is the conversation_id (common for root posts)
-            # print(f"No specific conversation_id found for {tweet_id_str} in 'conversations' table. Assuming it's a root tweet, using its own ID as conversation_id.")
+            # Fallback: if not in conversations table or response.data is empty/None
+            # print(f"No specific conversation_id found for {tweet_id_str} in 'conversations' table (or response.data missing). Assuming it's a root tweet, using its own ID as conversation_id.")
             return tweet_id_str 
     except PostgrestAPIError as e:
         print(f"PostgrestAPIError fetching conversation_id for {tweet_id_str}: {e.message}")
@@ -170,6 +175,92 @@ def _enrich_single_tweet(raw_tweet_from_view: dict, accounts_map: dict, profiles
     
     return enriched_data
 
+async def _fetch_raw_direct_replies_async(target_tweet_id: str) -> list[dict] | dict:
+    """Fetches raw direct replies for a given target_tweet_id from the tweets_w_conversation_id view."""
+    if not supabase_client:
+        print("Error: Supabase client not initialized in _fetch_raw_direct_replies_async.")
+        return {"error": "Supabase client not initialized."}
+    
+    print(f"[tweet_fetcher _fetch_raw_direct_replies_async] Fetching all direct replies to tweet_id: {target_tweet_id} from 'tweets_w_conversation_id' view.")
+    try:
+        response = supabase_client.table("tweets_w_conversation_id").select("*").eq("reply_to_tweet_id", target_tweet_id).order("created_at", desc=False).execute()
+        
+        if response is None:
+            print(f"Error: supabase_client.execute() returned None when fetching direct replies for {target_tweet_id}.")
+            return {"error": "API call to fetch direct replies returned None unexpectedly."}
+        
+        if response.data:
+            if isinstance(response.data, list):
+                print(f"[tweet_fetcher _fetch_raw_direct_replies_async] Successfully fetched {len(response.data)} raw direct replies for target_tweet_id: {target_tweet_id}")
+                return response.data
+            else:
+                print(f"[tweet_fetcher _fetch_raw_direct_replies_async] Unexpected data structure from 'tweets_w_conversation_id' for replies to {target_tweet_id}: {type(response.data)}")
+                return {"error": "Unexpected data structure from API for replies.", "details": str(response.data)[:500]}
+        else:
+            print(f"[tweet_fetcher _fetch_raw_direct_replies_async] No direct replies found in 'tweets_w_conversation_id' for target_tweet_id: {target_tweet_id}.")
+            return [] # Return empty list if no data
+            
+    except PostgrestAPIError as e:
+        print(f"PostgrestAPIError fetching direct replies for {target_tweet_id}: {e.message}")
+        return {"error": f"PostgREST API error: {e.message}", "code": e.code, "details": e.details, "hint": e.hint, "status_code": getattr(e, 'status_code', None)}
+    except HTTPStatusError as e:
+        print(f"HTTPStatusError fetching direct replies for {target_tweet_id}: {e.response.status_code} - {e.response.text}")
+        return {"error": f"HTTP Status Error: {e.response.status_code}", "details": e.response.text}
+    except Exception as e:
+        print(f"Unexpected error fetching direct replies for {target_tweet_id}: {type(e).__name__} - {e}")
+        return {"error": f"An unexpected client-side error: {type(e).__name__} - {str(e)}"}
+
+async def fetch_direct_replies_enriched(target_tweet_id: str) -> list[dict] | dict:
+    """
+    Fetches direct replies to a specific target_tweet_id and enriches them.
+    """
+    if not supabase_client:
+        return {"error": "Supabase client not initialized."}
+    if not target_tweet_id:
+        return {"error": "target_tweet_id is required."}
+
+    raw_replies_data = await _fetch_raw_direct_replies_async(target_tweet_id)
+
+    if isinstance(raw_replies_data, dict) and "error" in raw_replies_data:
+        return raw_replies_data 
+    
+    if not isinstance(raw_replies_data, list):
+        print(f"Fetch for direct replies to {target_tweet_id} did not return a list. Type: {type(raw_replies_data)}")
+        return {"error": "Direct replies fetch did not return a list."}
+    
+    if not raw_replies_data:
+        # print(f"No direct replies found for target_tweet_id: {target_tweet_id}.") # Already logged in _fetch_raw_direct_replies_async
+        return []
+
+    unique_account_ids = list(set(tweet.get("account_id") for tweet in raw_replies_data if tweet.get("account_id")))
+    
+    accounts_map = {}
+    profiles_map = {}
+    if unique_account_ids:
+        batch_results = await asyncio.gather(
+            _fetch_batch_account_details_async(unique_account_ids),
+            _fetch_batch_profile_details_async(unique_account_ids),
+            return_exceptions=True
+        )
+        
+        if isinstance(batch_results[0], dict):
+            accounts_map = batch_results[0]
+        elif isinstance(batch_results[0], Exception):
+            print(f"Error fetching batch account details for replies: {batch_results[0]}")
+
+        if isinstance(batch_results[1], dict):
+            profiles_map = batch_results[1]
+        elif isinstance(batch_results[1], Exception):
+            print(f"Error fetching batch profile details for replies: {batch_results[1]}")
+
+    enriched_replies = []
+    for raw_reply in raw_replies_data:
+        enriched_reply = _enrich_single_tweet(raw_reply, accounts_map, profiles_map)
+        enriched_reply['tweet_type'] = 'reply' # Ensure tweet_type is set
+        enriched_replies.append(enriched_reply)
+
+    return enriched_replies
+
 async def fetch_enriched_tweet_thread(tweet_url: str) -> list[dict] | dict:
     """
     Fetches an entire tweet conversation (main tweet and all replies) 
@@ -185,6 +276,8 @@ async def fetch_enriched_tweet_thread(tweet_url: str) -> list[dict] | dict:
     print(f"Extracted Tweet ID: {extracted_tweet_id} from URL: {tweet_url}")
 
     root_conversation_id = await _get_root_conversation_id_async(extracted_tweet_id)
+    print(f"[tweet_fetcher fetch_enriched_tweet_thread] For Extracted ID {extracted_tweet_id}, determined root_conversation_id: {root_conversation_id}")
+
     if not root_conversation_id:
         # This case should ideally be handled by the fallback in _get_root_conversation_id_async
         # or indicate a more significant issue if even the fallback (extracted_id itself) fails.
@@ -194,6 +287,17 @@ async def fetch_enriched_tweet_thread(tweet_url: str) -> list[dict] | dict:
     # print(f"Determined root conversation ID: {root_conversation_id}")
 
     raw_tweets_data = await _fetch_conversation_tweets_raw_async(root_conversation_id)
+    print(f"[tweet_fetcher fetch_enriched_tweet_thread] For root_conversation_id {root_conversation_id}, _fetch_conversation_tweets_raw_async returned (type: {type(raw_tweets_data)}):")
+    if isinstance(raw_tweets_data, list):
+        print(f"  Length: {len(raw_tweets_data)}")
+        for i, item_log in enumerate(raw_tweets_data[:3]): # Log first 3 raw items
+            item_id_log = item_log.get('tweet_id') # Note: In raw view, it's tweet_id
+            item_reply_to_id_log = item_log.get('reply_to_tweet_id')
+            item_convo_id_log = item_log.get('conversation_id')
+            item_text_log = (item_log.get('full_text') or "")[:70]
+            print(f"    RawItem {i}: ID={item_id_log}, ReplyToID={item_reply_to_id_log}, ConvoID={item_convo_id_log}, Text='{item_text_log}...'")
+    elif isinstance(raw_tweets_data, dict) and "error" in raw_tweets_data:
+        print(f"  Error: {raw_tweets_data.get('error')}")
 
     if isinstance(raw_tweets_data, dict) and "error" in raw_tweets_data:
         return raw_tweets_data # Return error from raw fetch
@@ -238,11 +342,36 @@ async def fetch_enriched_tweet_thread(tweet_url: str) -> list[dict] | dict:
         elif isinstance(batch_results[1], Exception):
             print(f"Error fetching batch profile details: {batch_results[1]}")
 
-    enriched_tweets = []
-    for raw_tweet in raw_tweets_data:
-        enriched_tweets.append(_enrich_single_tweet(raw_tweet, accounts_map, profiles_map))
+    enriched_data = []
+    if isinstance(raw_tweets_data, list): # Ensure raw_tweets_data is a list before iterating
+        for raw_tweet in raw_tweets_data:
+            enriched_tweet = _enrich_single_tweet(raw_tweet, accounts_map, profiles_map)
+            
+            # --- Robustly set tweet_type ---
+            current_tweet_id = enriched_tweet.get('id')
+            reply_to_id = enriched_tweet.get('reply_to_tweet_id')
 
-    return enriched_tweets
+            if current_tweet_id == extracted_tweet_id:
+                enriched_tweet['tweet_type'] = 'main_post'
+            elif reply_to_id:
+                enriched_tweet['tweet_type'] = 'reply'
+            else:
+                # Not the target extracted_tweet_id and no reply_to_id means it's likely 
+                # the actual root of the conversation, or a standalone tweet if convo has only one.
+                enriched_tweet['tweet_type'] = 'main_post' 
+            # --- End tweet_type setting ---
+            
+            enriched_data.append(enriched_tweet)
+    elif isinstance(raw_tweets_data, dict) and 'error' in raw_tweets_data:
+        # Propagate error if fetching raw tweets failed
+        return raw_tweets_data
+    else:
+        # Handle unexpected type for raw_tweets_data (e.g. None or non-list/dict)
+        print(f"Warning: raw_tweets_data was not a list or error dict. Type: {type(raw_tweets_data)}. URL: {tweet_url}")
+        # Return an error structure or empty list, consistent with other error handling
+        return {"error": "Unexpected data received when fetching raw conversation tweets.", "details": f"Expected list, got {type(raw_tweets_data)}"}
+
+    return enriched_data
 
 async def fetch_quote_tweets(supabase_client: Client, tweet_url: str) -> list[dict]:
     """
